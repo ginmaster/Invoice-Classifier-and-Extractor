@@ -251,10 +251,6 @@ To extend the tool:
 3. **Additional Formats** - Extend file handling for new document types
 4. **Output Formats** - Add new result formatters in the processing pipeline
 
-## License
-
-This project is part of the Microsoft Learn Azure AI documentation and samples.
-
 ## Related Resources
 
 - [Azure Content Understanding Documentation](https://docs.microsoft.com/azure/ai-services/content-understanding/)
