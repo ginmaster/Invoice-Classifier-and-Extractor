@@ -1,0 +1,20 @@
+# Invoice Extract - Azure Content Understanding
+# Core dependencies for invoiceExtract.py
+
+# HTTP client for API requests
+requests>=2.31.0
+
+# Optional: Enhanced environment variable management
+# Uncomment if using .env files for configuration
+# python-dotenv>=1.0.0
+
+# Optional: Azure authentication (if using AAD tokens)
+# Uncomment if implementing AAD token refresh
+# azure-identity>=1.15.0
+
+# Development dependencies (optional)
+# Uncomment for development/testing
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.5.0

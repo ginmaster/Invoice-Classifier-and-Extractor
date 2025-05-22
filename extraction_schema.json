@@ -1,0 +1,283 @@
+{
+  "fields": {
+    "amountinclVAT": {
+      "type": "number",
+      "method": "extract",
+      "description": "The total amount due on this invoice, including VAT and all items. Typically found at the end of the invoice summary, labeled as 'Gesamtbetrag', 'Total', 'Bruttosumme', or 'Amount Due'."
+    },
+    "amountexclVAT": {
+      "type": "number",
+      "method": "extract",
+      "description": "The subtotal/net amount before VAT, typically found above the VAT summary or labeled as 'Netto', 'Zwischensumme', or 'Subtotal'."
+    },
+    "vatAmount": {
+      "type": "number",
+      "method": "extract",
+      "description": "The total VAT for the invoice. Usually labeled as 'MwSt', 'USt', or 'VAT'."
+    },
+    "invoiceDiscountValue": {
+      "type": "number",
+      "method": "extract",
+      "description": "The total of all discounts applied to the invoice, if available. May be labeled as 'Nachlass', 'Rabatt', or 'Discount'."
+    },
+    "postingDate": {
+      "type": "date",
+      "method": "extract",
+      "description": "The date when the invoice was created or issued, typically found in the header area or near the invoice number."
+    },
+    "dueDate": {
+      "type": "date",
+      "method": "extract",
+      "description": "The date by which payment for this invoice is due. Usually found in the summary or payment conditions, labeled 'Zahlungsziel', 'Fälligkeitsdatum', or 'Due Date'. Format: DD.MM.YYYY."
+    },
+    "no": {
+      "type": "string",
+      "method": "extract",
+      "description": "The unique invoice number assigned by the vendor, usually marked as 'Rechnungsnummer' or 'Invoice Number' at the top of the document."
+    },
+    "payToName": {
+      "type": "string",
+      "method": "extract",
+      "description": "The name of the recipient (person or company) at the billing address. This typically appears above or next to the billing address block, and is not the full address."
+    },
+    "payToAddressParts": {
+      "type": "object",
+      "properties": {
+        "street": {
+          "type": "string",
+          "description": "Street portion of PayToAddress."
+        },
+        "postCode": {
+          "type": "string",
+          "description": "ZIP / postal code of PayToAddress."
+        },
+        "city": {
+          "type": "string",
+          "description": "City portion of PayToAddress."
+        }
+      },
+      "method": "generate",
+      "description": "Structured billing address broken into street / ZIP / city."
+    },
+    "buyFromVendorName": {
+      "type": "string",
+      "method": "extract",
+      "description": "The name of the customer or client to whom this invoice is addressed, usually located near the billing or customer address. This should be the business or person's name, not the full address."
+    },
+    "buyFromAddress": {
+      "type": "string",
+      "method": "extract",
+      "description": "Customer address (street + ZIP + city)."
+    },
+    "buyFromVendorNo": {
+      "type": "string",
+      "method": "extract",
+      "description": "Customer reference number (labels 'Kunden-Nr.')."
+    },
+    "vendorVatRegistrationNo": {
+      "type": "string",
+      "method": "extract",
+      "description": "The VAT identification number (USt-IdNr.) or tax ID of the vendor, typically near the address or summary section or in the footer"
+    },
+    "customerVatRegistrationNo": {
+      "type": "string",
+      "method": "extract",
+      "description": "The VAT identification number (USt-IdNr.) or tax ID of the customer, typically near the address or summary section."
+    },
+    "earlyPaymentDiscountPercentage": {
+      "type": "number",
+      "method": "extract",
+      "description": "Numeric rate from 'Skonto' sentence (e.g. 3.00)."
+    },
+    "earlyPaymentDiscountDate": {
+      "type": "date",
+      "method": "extract",
+      "description": "Discount-deadline date (e.g. '25.02.2024'). DD.MM.YYYY."
+    },
+    "netPaymentDueDate": {
+      "type": "date",
+      "method": "extract",
+      "description": "Net due date without discount (e.g. '07.03.2024'). DD.MM.YYYY."
+    },
+    "shipToName": {
+      "type": "string",
+      "method": "extract",
+      "description": "The name of the recipient or project site for the goods or services. Appears in the 'Lieferanschrift' or 'Delivery Address' block, and is not the full address."
+    },
+    "shipToAddress": {
+      "type": "string",
+      "method": "extract",
+      "description": "The delivery or service address for the goods or services. Labeled 'Lieferanschrift', 'Service Address', or 'Ship To'. Should include street, postal code, and city."
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "expectedReceiptDate": {
+            "type": "date",
+            "method": "extract",
+            "description": "The date or period when the goods/services for this line were provided or delivered. If not explicitly stated, leave blank."
+          },
+          "no": {
+            "type": "string",
+            "method": "extract",
+            "description": "Product code, item number, or SKU for this invoice line item, often labeled as 'Artikelnummer', 'Product No.', or similar."
+          },
+          "description": {
+            "type": "string",
+            "method": "extract",
+            "description": "The description of the line item, such as material, service, or work performed. This should exclude quantity or price."
+          },
+          "quantity": {
+            "type": "number",
+            "method": "extract",
+            "description": "The quantity, units, or amount billed for this line item, typically found next to unit and price."
+          },
+          "unitOfMeasureText": {
+            "type": "string",
+            "method": "extract",
+            "description": "The unit of measure for this line item (e.g., 'Stück', 'Std.', 'kg', 'psch')."
+          },
+          "directUnitCost": {
+            "type": "number",
+            "method": "extract",
+            "description": "Net price of one unit of this line item, before VAT or discounts."
+          },
+          "amount": {
+            "type": "number",
+            "method": "extract",
+            "description": "The total net amount for this line (unit price x quantity, before VAT)."
+          },
+          "vatPercentage": {
+            "type": "number",
+            "method": "extract",
+            "description": "The VAT rate (percentage) for this line item, such as '19%' or '7%'."
+          },
+          "vatAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "The VAT amount charged for this line item."
+          },
+          "lineNo": {
+            "type": "integer",
+            "method": "extract",
+            "description": "The unique line number for this item, as shown in the invoice table."
+          }
+        },
+        "method": "generate",
+        "description": "A single invoice line item with all details relevant for ERP integration."
+      },
+      "method": "generate",
+      "description": "All invoice line items, matching the table of goods or services on the invoice."
+    },
+    "vendorBank": {
+      "type": "object",
+      "properties": {
+        "bankName": {
+          "type": "string",
+          "description": "Bank name printed in the footer or letterhead (e.g. 'VR-Bank Mittelfranken Mitte eG')."
+        },
+        "iban": {
+          "type": "string",
+          "description": "IBAN from the footer (format DEkk bbbb bbbb cccc cccc cc). Extract the full IBAN string."
+        },
+        "bic": {
+          "type": "string",
+          "description": "BIC/SWIFT code printed next to the IBAN (e.g. 'GENODEF1ANS')."
+        },
+        "accountNo": {
+          "type": "string",
+          "description": "Legacy bank-account number if shown separately (leave blank when only IBAN is printed)."
+        }
+      },
+      "method": "generate",
+      "description": "Vendor banking details from the footer."
+    },
+    "invoiceDiscountGross": {
+      "type": "number",
+      "method": "extract",
+      "description": "Gross discount line (same numeric format as amountinclVAT). Usually just above the VAT summary or marked 'Nachlass'."
+    },
+    "prepaymentInvoices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "appliesToDocNo": {
+            "type": "string",
+            "method": "extract",
+            "description": "The invoice number or unique reference of every prepayment invoice (Abschlagsrechnung or Teilrechnung) referenced anywhere in the invoice—whether in the deduction summary, a calculation line, or in a separate overview table such as 'Übersicht der bisher gestellten Rechnungen'."
+          },
+          "date": {
+            "type": "date",
+            "method": "extract",
+            "description": "The date the referenced prepayment invoice was issued. Found next to the prepayment number in any deduction, calculation, or summary/overview table."
+          },
+          "netAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "The net amount (excluding VAT) of the prepayment invoice, from either the deduction calculation or the summary/overview table (e.g., 'Netto')."
+          },
+          "vatAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "The VAT amount for the prepayment invoice, found in either calculation lines or summary tables ('MwSt', 'USt', or 'VAT')."
+          },
+          "grossAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "The gross amount (net + VAT) of the prepayment invoice, found in any deduction or summary/overview table (e.g., 'Brutto')."
+          }
+        },
+        "method": "generate",
+        "description": "A single referenced prepayment invoice, from either direct deduction lines or summary tables."
+      },
+      "method": "generate",
+      "description": "All prepayment invoices (Abschlagsrechnungen/Teilrechnungen) referenced in the invoice, whether deducted in the calculation or shown in a summary/overview table."
+    },
+    "prepaymentsReceived": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "paymentDate": {
+            "type": "date",
+            "method": "extract",
+            "description": "The date a payment was actually received or booked for a prepayment invoice. Usually found in a payment history or bank transaction table below the deductions."
+          },
+          "paymentNetAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "Numeric value from the ‘Netto’ column of the same row (net amount already received)."
+          },
+          "paymentVatAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "Numeric value from the ‘USt’ column of the same row (VAT portion already received)."
+          },
+          "paymentAmount": {
+            "type": "number",
+            "method": "extract",
+            "description": "The amount of the payment received for a prepayment invoice, matching the bank transaction or payment advice. Shown in the 'Betrag', 'Amount', or similar column."
+          },
+          "paymentReference": {
+            "type": "string",
+            "method": "extract",
+            "description": "The payment reference, such as bank transaction ID, payment method, payer note, or other reference. May appear as 'Verwendungszweck', 'Reference', or similar."
+          },
+          "appliesToDocNo": {
+            "type": "string",
+            "method": "extract",
+            "description": "The reference number of the prepayment invoice (Abschlagsrechnung) that this payment was made against. This helps to match each payment to the correct invoice, if shown."
+          }
+        },
+        "method": "generate",
+        "description": "A single actual prepayment (payment received or booked against a prepayment/Abschlagsrechnung invoice)."
+      },
+      "method": "generate",
+      "description": "A list of all actual prepayments received (payments made for prepayment invoices), as typically shown in a payment receipt/history table."
+    }
+  },
+  "definitions": {}
+}
