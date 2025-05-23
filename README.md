@@ -16,6 +16,7 @@ A comprehensive Python CLI tool for extracting structured data from invoices usi
 - **Multi-format Support**: Process local PDF files or remote URLs
 - **Robust Error Handling**: Exponential backoff, timeout protection, and retry logic
 - **Interactive CLI**: User-friendly menu system for managing analyzers and classifiers
+- **Markdown Summary Generation**: Automatically generates clean markdown tables from extracted data
 
 ### 🛠️ Technical Features
 - Session-based HTTP client with automatic retries
@@ -64,12 +65,29 @@ export EXTRACTION_SCHEMA_PATH="schema.json"       # Custom schema file
 
 ## Usage
 
-### Quick Start
+### Quick Start - Interactive Mode
 ```bash
 python invoiceExtract.py
 ```
 
 This launches an interactive CLI menu with the following options:
+
+### Direct Execution Mode
+```bash
+# Set required environment variables
+export CU_ENDPOINT="https://<resource>.services.ai.azure.com"
+export CU_KEY="your-subscription-key"
+export ANALYZER_ID="invoice-v1"
+
+# Run extraction directly
+python invoiceExtract.py --run
+```
+
+The `--run` flag bypasses the interactive menu and automatically:
+- Creates/updates the custom analyzer
+- Creates/updates the document classifier
+- Runs the complete extraction workflow
+- Generates both JSON and markdown output files
 
 ### CLI Menu Options
 1. **List all classifiers** - View existing document classifiers
@@ -90,7 +108,8 @@ The complete workflow (option 9) performs:
 1. **Document Classification** - Identifies invoice segments in the document
 2. **Field Extraction** - Extracts structured data using custom analyzer
 3. **Results Processing** - Saves raw JSON and displays key fields
-4. **Summary Report** - Shows extracted invoice summary
+4. **Markdown Summary** - Generates structured markdown tables with all extracted fields
+5. **Summary Report** - Shows extracted invoice summary
 
 ### Example Output
 ```
@@ -108,6 +127,8 @@ InvoiceDate: 2024-01-15
 InvoiceTotal: 1250.00
 CustomerName: Example Client Ltd
 
+📁 Complete analysis saved to: invoice_raw_result.json
+📄 Markdown summary saved to: invoice_extracted_fields_summary.md
 ✅ Extraction workflow completed successfully!
 ```
 
@@ -194,8 +215,39 @@ python invoiceExtract.py
 ## Output Files
 
 - `invoice_raw_result.json` - Complete API response with classification and analysis results
+- `invoice_extracted_fields_summary.md` - Structured markdown tables with all extracted fields
 - Console output - Formatted summary of key extracted fields
 - Logs - Detailed operation logs with timestamps
+
+### Markdown Summary Format
+
+The generated markdown summary organizes extracted data into clean tables:
+
+#### General Fields Table
+Contains all simple fields like invoice number, dates, amounts, and addresses in a two-column format.
+
+#### Array Fields Tables
+Each array field (items, prepaymentInvoices, prepaymentsReceived) gets its own section with appropriate columns based on the data structure.
+
+Example:
+```markdown
+## General fields
+
+| field | value |
+|---|---|
+| amountinclVAT | 87027.68 |
+| no | AR24-0013 |
+| payToName | Peter Hausmann GmbH |
+| payToAddressParts.street | Wiesenstraße 1d |
+| payToAddressParts.postCode | 91126 |
+| payToAddressParts.city | Schwabach |
+
+## items
+
+| items.description | items.quantity | items.amount | items.vatPercentage |
+|---|---|---|---|
+| Abbrucharbeiten | 0.95 | 283575 | 0.19 |
+```
 
 ## Troubleshooting
 
