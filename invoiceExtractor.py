@@ -14,17 +14,20 @@ from requests.adapters import HTTPAdapter, Retry
 
 # --- Load Extraction Schema ------------------------------------------------------------
 def load_extraction_schema(path: str = "extraction_schema.json") -> dict[str, Any]:
-    """Load extraction schema from JSON file.
+    """Load field extraction schema from JSON file.
+    
+    The schema defines the structure and types of fields to extract from invoices,
+    including nested objects and arrays for line items.
     
     Args:
-        path: Path to the extraction schema JSON file.
+        path: Path to the extraction schema JSON file. Defaults to 'extraction_schema.json'.
         
     Returns:
-        The extraction schema dictionary.
+        Dictionary containing field definitions with 'fields' key.
         
     Raises:
-        FileNotFoundError: If the file does not exist.
-        json.JSONDecodeError: If the file contains invalid JSON.
+        FileNotFoundError: If schema file doesn't exist at specified path.
+        json.JSONDecodeError: If file contains invalid JSON syntax.
     """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -68,10 +71,10 @@ class Settings:
 
     @property
     def token_provider(self) -> Optional[Callable[[], str]]:
-        """Get AAD token provider if AAD authentication is configured.
+        """Get Azure Active Directory token provider for authentication.
         
         Returns:
-            Token provider callable or None if using subscription key.
+            Callable that returns current AAD token, or None if using subscription key auth.
         """
         if self.aad_token:
             return AADTokenProvider(self.aad_token)
@@ -79,21 +82,27 @@ class Settings:
 
 # --- Token Provider ---------------------------------------------------------------
 class AADTokenProvider:
-    """Azure Active Directory token provider with expiration handling.
+    """Azure Active Directory token provider with automatic refresh support.
+    
+    Manages AAD tokens and handles expiration by tracking token lifetime.
+    Currently requires manual token refresh implementation.
     
     Args:
-        initial_token: The AAD token to use.
-        expires_in: Token lifetime in seconds.
+        initial_token: Initial AAD bearer token for authentication.
+        expires_in: Token validity period in seconds. Defaults to 3300 (55 minutes).
     """
     def __init__(self, initial_token: str, expires_in: int = 3300):
         self._token = initial_token
         self._expires_at = time.time() + expires_in
 
     def __call__(self) -> str:
-        """Get current token, refreshing if near expiration.
+        """Get current valid AAD token.
+        
+        Checks token expiration and triggers refresh if within 60 seconds of expiry.
+        Note: Token refresh logic needs to be implemented.
         
         Returns:
-            Current valid AAD token.
+            Valid AAD bearer token string.
         """
         if time.time() > self._expires_at - 60:
             # TODO: Refresh token here
@@ -145,10 +154,12 @@ class AzureContentUnderstandingClient:
         self._session = self._create_session()
 
     def _get_headers(self) -> dict[str, str]:
-        """Build HTTP headers with authentication.
+        """Build HTTP request headers with authentication credentials.
+        
+        Adds either subscription key or bearer token based on configured auth method.
         
         Returns:
-            Dictionary of HTTP headers.
+            Dictionary containing x-ms-useragent and authentication headers.
         """
         token = self._token_provider()() if self._token_provider else None
         headers = {"x-ms-useragent": "invoice-extractor"}
@@ -159,10 +170,13 @@ class AzureContentUnderstandingClient:
         return headers
 
     def _create_session(self) -> requests.Session:
-        """Create HTTP session with retry configuration.
+        """Create HTTP session with automatic retry and backoff handling.
+        
+        Configures exponential backoff for transient failures and rate limiting.
+        Retries on status codes: 429 (rate limit), 500, 502, 503, 504.
         
         Returns:
-            Configured requests session.
+            Configured requests.Session instance with retry adapter.
         """
         session = requests.Session()
         retries = Retry(
@@ -177,15 +191,18 @@ class AzureContentUnderstandingClient:
         return session
 
     def _refresh_headers(self):
-        """Refresh authentication headers."""
+        """Update authentication headers with current credentials.
+        
+        Called before each request to ensure fresh authentication tokens.
+        """
         self._headers = self._get_headers()
 
     # Classifier operations
     def list_classifiers(self) -> list[dict[str, Any]]:
-        """List all document classifiers.
+        """List all available document classifiers in the workspace.
         
         Returns:
-            List of classifier definitions.
+            List of classifier objects containing id, status, and description.
         """
         self._refresh_headers()
         url = f"{self._endpoint}/contentunderstanding/classifiers?api-version={self._api_version}"
@@ -194,14 +211,17 @@ class AzureContentUnderstandingClient:
         return resp.json().get("value", [])
 
     def create_or_update_classifier(self, classifier_id: str, analyzer_id: str):
-        """Create or update a document classifier.
+        """Create or update a document classifier for invoice/receipt categorization.
+        
+        Configures a classifier with auto split mode and invoice category linked
+        to the specified analyzer. Handles 409 conflicts gracefully for updates.
         
         Args:
             classifier_id: Unique identifier for the classifier.
-            analyzer_id: Associated analyzer for invoice processing.
+            analyzer_id: ID of analyzer to use for invoice category documents.
             
         Returns:
-            HTTP response object.
+            HTTP response object with operation result.
         """
         self._refresh_headers()
         url = f"{self._endpoint}/contentunderstanding/classifiers/{classifier_id}?api-version={self._api_version}"
@@ -217,13 +237,13 @@ class AzureContentUnderstandingClient:
         return resp
 
     def delete_classifier(self, classifier_id: str):
-        """Delete a document classifier.
+        """Delete an existing document classifier.
         
         Args:
-            classifier_id: Classifier to delete.
+            classifier_id: ID of the classifier to delete.
             
         Returns:
-            HTTP response object.
+            HTTP response object with deletion status.
         """
         self._refresh_headers()
         url = f"{self._endpoint}/contentunderstanding/classifiers/{classifier_id}?api-version={self._api_version}"
@@ -233,10 +253,10 @@ class AzureContentUnderstandingClient:
 
     # Analyzer operations
     def list_analyzers(self) -> list[dict[str, Any]]:
-        """List all custom analyzers.
+        """List all custom field extraction analyzers in the workspace.
         
         Returns:
-            List of analyzer definitions.
+            List of analyzer objects containing id, status, and field schema.
         """
         self._refresh_headers()
         url = f"{self._endpoint}/contentunderstanding/analyzers?api-version={self._api_version}"
@@ -245,15 +265,18 @@ class AzureContentUnderstandingClient:
         return resp.json().get("value", [])
 
     def create_or_update_analyzer(self, analyzer_id: str, field_schema: dict[str, Any], description: str = "Custom Invoice Analyzer"):
-        """Create or update a custom field extraction analyzer.
+        """Create or update a custom analyzer for structured field extraction.
+        
+        Builds on prebuilt-documentAnalyzer base model with custom field schema.
+        Handles 409 conflicts gracefully for updates. Logs detailed error info on failure.
         
         Args:
             analyzer_id: Unique identifier for the analyzer.
-            field_schema: Field extraction schema definition.
-            description: Human-readable description.
+            field_schema: Schema dict with 'fields' key containing field definitions.
+            description: Human-readable description of analyzer purpose.
             
         Returns:
-            HTTP response object.
+            HTTP response object with operation result.
         """
         self._refresh_headers()
         url = f"{self._endpoint}/contentunderstanding/analyzers/{analyzer_id}?api-version={self._api_version}"
@@ -269,17 +292,25 @@ class AzureContentUnderstandingClient:
             self._logger.info(f"Analyzer '{analyzer_id}' already exists, update completed")
             return resp
         
+        # Log error details for debugging
+        if not resp.ok:
+            try:
+                error_details = resp.json()
+                self._logger.error(f"API Error Response: {json.dumps(error_details, indent=2)}")
+            except:
+                self._logger.error(f"API Error Response Text: {resp.text}")
+        
         resp.raise_for_status()
         return resp
 
     def delete_analyzer(self, analyzer_id: str):
-        """Delete a custom analyzer.
+        """Delete an existing custom analyzer.
         
         Args:
-            analyzer_id: Analyzer to delete.
+            analyzer_id: ID of the analyzer to delete.
             
         Returns:
-            HTTP response object.
+            HTTP response object with deletion status.
         """
         self._refresh_headers()
         url = f"{self._endpoint}/contentunderstanding/analyzers/{analyzer_id}?api-version={self._api_version}"
@@ -288,17 +319,22 @@ class AzureContentUnderstandingClient:
         return resp
 
     def classify_document(self, classifier_id: str, file_location: str):
-        """Classify document content using specified classifier.
+        """Classify a document to identify content type and segments.
+        
+        Supports both local files (binary upload) and remote URLs.
+        Polls operation until completion and returns classification results.
         
         Args:
-            classifier_id: Classifier to use for document classification.
-            file_location: Path to local file or URL to remote document.
+            classifier_id: ID of classifier to use for categorization.
+            file_location: Local file path or HTTP(S) URL to document.
             
         Returns:
-            Classification results with identified content categories.
+            Dict containing classification results with identified categories.
             
         Raises:
-            ValueError: If file location is invalid or operation location missing.
+            ValueError: If file_location format is invalid or operation header missing.
+            FileNotFoundError: If local file doesn't exist.
+            requests.HTTPError: If API request fails.
         """
         self._refresh_headers()
         if Path(file_location).exists():
@@ -323,17 +359,23 @@ class AzureContentUnderstandingClient:
         return self._poll_operation_result(operation_location)
 
     def begin_analyze(self, analyzer_id: str, file_location: str):
-        """Extract structured fields from document using custom analyzer.
+        """Extract structured data from document using custom analyzer.
+        
+        Performs field extraction based on analyzer's schema definition.
+        Supports both local files (binary upload) and remote URLs.
+        Polls operation until completion and returns extracted data.
         
         Args:
-            analyzer_id: Custom analyzer for field extraction.
-            file_location: Path to local file or URL to remote document.
+            analyzer_id: ID of custom analyzer with field extraction schema.
+            file_location: Local file path or HTTP(S) URL to document.
             
         Returns:
-            Analysis results with extracted field values.
+            Dict containing extracted fields with values and confidence scores.
             
         Raises:
-            ValueError: If file location is invalid or operation location missing.
+            ValueError: If file_location format is invalid or operation header missing.
+            FileNotFoundError: If local file doesn't exist.
+            requests.HTTPError: If API request fails.
         """
         self._refresh_headers()
         if Path(file_location).exists():
@@ -358,18 +400,22 @@ class AzureContentUnderstandingClient:
         return self._poll_operation_result(operation_location)
 
     def _poll_operation_result(self, operation_location: str, timeout: int = 600):
-        """Poll long-running operation until completion.
+        """Poll asynchronous operation status until completion.
+        
+        Implements exponential backoff polling with 2-second intervals.
+        Handles succeeded, failed, and timeout scenarios.
         
         Args:
-            operation_location: URL to poll for operation status.
-            timeout: Maximum time to wait in seconds.
+            operation_location: Operation status URL from response header.
+            timeout: Maximum seconds to wait before timeout. Defaults to 600 (10 min).
             
         Returns:
-            Operation result data.
+            Dict containing operation result data on success.
             
         Raises:
-            TimeoutError: If operation exceeds timeout.
-            RuntimeError: If operation fails.
+            TimeoutError: If operation doesn't complete within timeout period.
+            RuntimeError: If operation status is 'failed'.
+            requests.HTTPError: If status polling request fails.
         """
         start_time = time.time()
         while True:
@@ -401,11 +447,14 @@ def cli_menu(client: AzureContentUnderstandingClient, settings: Settings):
         settings: Configuration including file paths and endpoints.
     """
     def display_items(items: list, item_type: str):
-        """Display items in formatted table.
+        """Display resource items in a formatted ASCII table.
+        
+        Handles multiple ID field formats (id, analyzerId, classifierId, name).
+        Shows ID, status, and description columns with proper alignment.
         
         Args:
-            items: List of items to display.
-            item_type: Type description for headers.
+            items: List of resource dictionaries to display.
+            item_type: Resource type name for display headers (e.g., 'classifiers').
         """
         if not items:
             print(f"No {item_type} found.")
@@ -423,14 +472,17 @@ def cli_menu(client: AzureContentUnderstandingClient, settings: Settings):
         print()
 
     def select_from_list(items: list, item_type: str) -> str:
-        """Allow user to select item from list.
+        """Interactive prompt for selecting a resource from displayed list.
+        
+        Shows available items and validates user selection against all possible
+        ID field formats. Supports 'back' command to cancel selection.
         
         Args:
-            items: Available items to choose from.
-            item_type: Type description for prompts.
+            items: List of available resource dictionaries.
+            item_type: Resource type name for prompt text.
             
         Returns:
-            Selected item ID or empty string if cancelled.
+            Selected resource ID string, or empty string if cancelled/no items.
         """
         if not items:
             print(f"No {item_type} available.")
@@ -555,20 +607,206 @@ def cli_menu(client: AzureContentUnderstandingClient, settings: Settings):
             print(f"Error: {e}", file=sys.stderr)
 
 
-# --- Extraction Workflow ------------------------------------------------------------
-def run_extraction(client: AzureContentUnderstandingClient, settings: Settings):
-    """Execute complete invoice extraction workflow.
+# --- Markdown Generation -----------------------------------------------------------
+def generate_markdown_summary(analysis_result: dict[str, Any], schema_path: str = "extraction_schema.json") -> str:
+    """Generate structured markdown report from extracted invoice data.
     
-    Performs document classification, field extraction, and result processing.
-    Saves raw results to JSON and displays key extracted fields.
+    Organizes extraction results into sections: general fields (single values),
+    object fields (flattened), and array fields (tabular format). Uses schema
+    to identify expected fields even if not found in results.
     
     Args:
-        client: Content Understanding API client.
-        settings: Configuration with file location and analyzer/classifier IDs.
+        analysis_result: API response containing extracted field values.
+        schema_path: Path to schema JSON for field type information.
+        
+    Returns:
+        Path to generated markdown file ('invoice_extracted_fields_summary.md').
+    """
+    try:
+        schema = load_extraction_schema(schema_path)
+        field_definitions = schema.get("fields", {})
+    except Exception as e:
+        logging.warning(f"Could not load extraction schema: {e}")
+        field_definitions = {}
+    
+    output_lines = ["# Extracted Invoice Fields\n"]
+    
+    if "contents" not in analysis_result or not analysis_result["contents"]:
+        output_lines.append("No content extracted from document.\n")
+        output_path = "invoice_extracted_fields_summary.md"
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.writelines(output_lines)
+        return output_path
+    
+    fields = analysis_result["contents"][0].get("fields", {})
+    
+    # Separate fields into categories
+    general_fields = {}
+    array_fields = {}
+    object_fields = {}
+    
+    for field_name, field_data in fields.items():
+        if not isinstance(field_data, dict):
+            continue
+            
+        # Check if it's an array field
+        if "valueArray" in field_data:
+            array_fields[field_name] = field_data["valueArray"]
+        # Check if it's an object field with sub-properties
+        elif "valueObject" in field_data:
+            object_fields[field_name] = field_data["valueObject"]
+        else:
+            # It's a simple field - extract the value
+            value = extract_field_value(field_data)
+            if value is not None:
+                general_fields[field_name] = value
+    
+    # Also check for fields defined in schema but not in results
+    for field_name, field_def in field_definitions.items():
+        if field_name not in fields:
+            if field_def.get("type") == "array":
+                array_fields[field_name] = []
+            elif field_def.get("type") == "object":
+                object_fields[field_name] = {}
+    
+    # Write general fields section
+    output_lines.append("## General fields\n\n")
+    output_lines.append("| field | value |\n")
+    output_lines.append("|---|---|\n")
+    
+    # Process general fields and object sub-fields
+    for field_name in sorted(general_fields.keys()):
+        value = general_fields[field_name]
+        output_lines.append(f"| {field_name} | {format_value(value)} |\n")
+    
+    # Process object fields (flatten them)
+    for obj_name in sorted(object_fields.keys()):
+        obj_data = object_fields[obj_name]
+        if isinstance(obj_data, dict):
+            for sub_field, sub_value in obj_data.items():
+                field_value = extract_field_value(sub_value) if isinstance(sub_value, dict) else sub_value
+                if field_value is not None:
+                    output_lines.append(f"| {obj_name}.{sub_field} | {format_value(field_value)} |\n")
+    
+    output_lines.append("\n")
+    
+    # Write array field sections
+    for array_name in sorted(array_fields.keys()):
+        array_data = array_fields[array_name]
+        if not array_data:
+            continue
+            
+        output_lines.append(f"## {array_name}\n\n")
+        
+        # Determine columns from first item or schema
+        columns = []
+        if array_data and isinstance(array_data[0], dict):
+            # Get fields from first item
+            first_item = array_data[0].get("valueObject", array_data[0])
+            columns = list(first_item.keys())
+        elif array_name in field_definitions and "items" in field_definitions[array_name]:
+            # Get fields from schema
+            item_props = field_definitions[array_name]["items"].get("properties", {})
+            columns = list(item_props.keys())
+        
+        if columns:
+            # Create header row
+            header = "| " + " | ".join(f"{array_name}.{col}" for col in columns) + " |\n"
+            output_lines.append(header)
+            output_lines.append("|" + "---|" * len(columns) + "\n")
+            
+            # Add data rows
+            for item in array_data:
+                if isinstance(item, dict):
+                    item_obj = item.get("valueObject", item)
+                    row_values = []
+                    for col in columns:
+                        if col in item_obj:
+                            val = extract_field_value(item_obj[col]) if isinstance(item_obj[col], dict) else item_obj[col]
+                            row_values.append(format_value(val))
+                        else:
+                            row_values.append("na")
+                    output_lines.append("| " + " | ".join(row_values) + " |\n")
+        
+        output_lines.append("\n\n")
+    
+    # Write to file
+    output_path = "invoice_extracted_fields_summary.md"
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.writelines(output_lines)
+    
+    return output_path
+
+
+def extract_field_value(field_data: dict[str, Any]) -> Any:
+    """Extract typed value from Content Understanding field response structure.
+    
+    Checks multiple value type keys in priority order, handling strings,
+    numbers, dates, times, phone numbers, booleans, and currency amounts.
+    
+    Args:
+        field_data: Field dictionary with type-specific value keys.
+        
+    Returns:
+        Extracted value of appropriate type, or None if no value found.
+    """
+    # Check for different value types in order of preference
+    for value_key in ["valueString", "valueNumber", "valueDate", "valueTime", 
+                      "valuePhoneNumber", "valueInteger", "valueBoolean"]:
+        if value_key in field_data:
+            return field_data[value_key]
+    
+    # Check for currency values
+    if "valueCurrency" in field_data:
+        currency_data = field_data["valueCurrency"]
+        if isinstance(currency_data, dict) and "amount" in currency_data:
+            return currency_data["amount"]
+    
+    return None
+
+
+def format_value(value: Any) -> str:
+    """Format extracted values for clean markdown table display.
+    
+    Converts None/empty to 'na', booleans to lowercase strings,
+    and removes unnecessary decimal points from whole numbers.
+    
+    Args:
+        value: Extracted field value of any type.
+        
+    Returns:
+        Formatted string suitable for markdown tables.
+    """
+    if value is None or value == "":
+        return "na"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        # Format numbers consistently
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    return str(value)
+
+
+# --- Extraction Workflow ------------------------------------------------------------
+def run_extraction(client: AzureContentUnderstandingClient, settings: Settings):
+    """Execute end-to-end invoice extraction workflow.
+    
+    Workflow steps:
+    1. Validate file accessibility (local or remote)
+    2. Classify document to identify invoice segments
+    3. Extract fields using custom analyzer if invoice found
+    4. Save raw JSON results and generate markdown summary
+    5. Display key field values (VendorName, InvoiceId, etc.)
+    
+    Args:
+        client: Configured API client instance.
+        settings: Configuration with file paths and resource IDs.
         
     Raises:
-        ValueError: If file location is invalid or required settings missing.
-        Exception: If classification or analysis operations fail.
+        ValueError: If file inaccessible or classifier/analyzer IDs missing.
+        Exception: Re-raises any API operation failures.
     """
     loc = settings.file_location
     
@@ -637,6 +875,11 @@ def run_extraction(client: AzureContentUnderstandingClient, settings: Settings):
                     print(f"{field_name}: {value}")
             
             print(f"\n📁 Complete analysis saved to: {raw_output_file}")
+            
+            # Generate markdown summary
+            markdown_file = generate_markdown_summary(analysis_result, settings.extraction_schema_path)
+            print(f"📄 Markdown summary saved to: {markdown_file}")
+            
             print("✅ Extraction workflow completed successfully!")
         else:
             print("⚠️  No field data found in analysis result")
@@ -648,18 +891,24 @@ def run_extraction(client: AzureContentUnderstandingClient, settings: Settings):
 
 # --- Main -------------------------------------------------------------------------------
 def main():
-    """Initialize application and either launch CLI menu or run extraction directly.
+    """Application entry point with CLI menu or direct extraction modes.
     
-    Configures logging, loads environment variables, and starts the
-    interactive Content Understanding CLI or runs extraction workflow directly.
+    Configures logging, validates environment, and launches either:
+    - Interactive CLI menu (default): Full resource management interface
+    - Direct extraction (--run flag): Automated workflow execution
     
     Environment Variables:
-        CU_ENDPOINT: Content Understanding service endpoint URL.
-        CU_KEY: Subscription key for authentication.
-        CU_AAD_TOKEN: AAD token for authentication (alternative to CU_KEY).
-        INVOICE_FILE: Path to invoice file to process.
-        ANALYZER_ID: Custom analyzer identifier (required for --run).
-        CLASSIFIER_ID: Document classifier identifier (optional for --run).
+        CU_ENDPOINT: Azure Content Understanding endpoint (required)
+        CU_KEY: Subscription key for auth (or use CU_AAD_TOKEN)
+        CU_AAD_TOKEN: AAD bearer token for auth (or use CU_KEY)
+        INVOICE_FILE: Document path/URL (default: 'invoice.pdf')
+        ANALYZER_ID: Custom analyzer ID (required for --run mode)
+        CLASSIFIER_ID: Classifier ID (auto-generated if not set)
+        EXTRACTION_SCHEMA_PATH: Schema JSON path (default: 'extraction_schema.json')
+    
+    Exit Codes:
+        0: Success
+        1: Configuration error or extraction failure
     """
     parser = argparse.ArgumentParser(description="Azure Content Understanding Invoice Extractor")
     parser.add_argument("--run", action="store_true", 
